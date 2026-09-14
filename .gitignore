@@ -1,0 +1,5 @@
+bin/
+log.txt
+banco.json
+banco.json.tmp
+*.o
