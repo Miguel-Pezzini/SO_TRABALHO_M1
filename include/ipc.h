@@ -3,6 +3,8 @@
 
 #include "protocol.h"
 
+#include <cstddef>
+
 #define IPC_PIPE_REQ  "/tmp/db_req"
 #define IPC_PIPE_RESP "/tmp/db_resp"
 
@@ -17,9 +19,7 @@ int ipc_open_client(IpcChannel* ch);
 void ipc_close(IpcChannel* ch);
 void ipc_remove_fifos();
 
-int ipc_send_request(int fd, const Request* req);
-int ipc_recv_request(int fd, Request* req);
-int ipc_send_response(int fd, const Response* resp);
-int ipc_recv_response(int fd, Response* resp);
+int ipc_write(int fd, const void* buf, size_t n);
+int ipc_read(int fd, void* buf, size_t n);
 
 #endif

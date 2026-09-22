@@ -70,16 +70,9 @@ O `nome` pode ter espaços. `SELECT` e `UPDATE` bem-sucedidos imprimem `id` e `n
 
 ## Persistência
 
+O banco fica só em memória (`vector`). Ao encerrar o servidor, os registros somem.
+
 - `log.txt`: histórico de operações (append).
-- `banco.json`: estado do banco. Na subida o servidor carrega o arquivo para a memória; cada INSERT, DELETE e UPDATE grava de novo. `SELECT` não altera o arquivo. Se o JSON não existir, começa vazio e cria `[]`.
-
-Formato:
-
-```json
-[
-  {"id": 7, "nome": "Joao"}
-]
-```
 
 ## Limpar
 

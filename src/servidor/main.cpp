@@ -1,20 +1,16 @@
 #include "ipc.h"
 #include "protocol.h"
 
-#include <cctype>
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <fstream>
 #include <iostream>
-#include <iterator>
 #include <poll.h>
 #include <pthread.h>
 #include <queue>
-#include <string>
 #include <unistd.h>
 #include <vector>
 
@@ -31,9 +27,6 @@ struct Banco {
     pthread_mutex_t mutex;
 };
 
-static const char* BANCO_PATH = "banco.json";
-static const char* BANCO_TMP_PATH = "banco.json.tmp";
-
 static void banco_init(Banco* b) {
     pthread_mutex_init(&b->mutex, nullptr);
 }
@@ -42,192 +35,18 @@ static void banco_destroy(Banco* b) {
     pthread_mutex_destroy(&b->mutex);
 }
 
-static void skip_ws(const std::string& s, size_t* i) {
-    while (*i < s.size() && std::isspace(static_cast<unsigned char>(s[*i]))) {
-        (*i)++;
-    }
+static void copy_nome(char* dst, const char* src) {
+    std::strncpy(dst, src, sizeof(Registro::nome) - 1);
+    dst[sizeof(Registro::nome) - 1] = '\0';
 }
 
-static std::string json_escape(const char* s) {
-    std::string out;
-    for (; *s != '\0'; s++) {
-        if (*s == '"' || *s == '\\') {
-            out += '\\';
-            out += *s;
-        } else if (*s == '\n') {
-            out += "\\n";
-        } else {
-            out += *s;
+static Registro* banco_find(Banco* b, int id) {
+    for (Registro& row : b->rows) {
+        if (row.id == id) {
+            return &row;
         }
     }
-    return out;
-}
-
-static bool parse_json_string(const std::string& s, size_t* i, std::string* out) {
-    skip_ws(s, i);
-    if (*i >= s.size() || s[*i] != '"') {
-        return false;
-    }
-    (*i)++;
-    out->clear();
-    while (*i < s.size()) {
-        char c = s[*i];
-        if (c == '"') {
-            (*i)++;
-            return true;
-        }
-        if (c == '\\' && *i + 1 < s.size()) {
-            char n = s[*i + 1];
-            if (n == '"' || n == '\\') {
-                *out += n;
-            } else if (n == 'n') {
-                *out += '\n';
-            }
-            *i += 2;
-            continue;
-        }
-        *out += c;
-        (*i)++;
-    }
-    return false;
-}
-
-static bool parse_json_object(const std::string& s, size_t* i, Registro* row) {
-    skip_ws(s, i);
-    if (*i >= s.size() || s[*i] != '{') {
-        return false;
-    }
-    (*i)++;
-    std::memset(row, 0, sizeof(*row));
-    bool got_id = false;
-    bool got_nome = false;
-
-    while (true) {
-        skip_ws(s, i);
-        if (*i < s.size() && s[*i] == '}') {
-            (*i)++;
-            break;
-        }
-
-        std::string key;
-        if (!parse_json_string(s, i, &key)) {
-            return false;
-        }
-        skip_ws(s, i);
-        if (*i >= s.size() || s[*i] != ':') {
-            return false;
-        }
-        (*i)++;
-        skip_ws(s, i);
-
-        if (key == "id") {
-            char* end = nullptr;
-            long v = std::strtol(s.c_str() + *i, &end, 10);
-            if (end == s.c_str() + *i) {
-                return false;
-            }
-            *i = static_cast<size_t>(end - s.c_str());
-            row->id = static_cast<int>(v);
-            got_id = true;
-        } else if (key == "nome") {
-            std::string nome;
-            if (!parse_json_string(s, i, &nome)) {
-                return false;
-            }
-            std::strncpy(row->nome, nome.c_str(), sizeof(row->nome) - 1);
-            got_nome = true;
-        } else {
-            return false;
-        }
-
-        skip_ws(s, i);
-        if (*i < s.size() && s[*i] == ',') {
-            (*i)++;
-        }
-    }
-    return got_id && got_nome;
-}
-
-static int banco_save_unlocked(const Banco* b) {
-    FILE* fp = std::fopen(BANCO_TMP_PATH, "w");
-    if (!fp) {
-        return -1;
-    }
-    std::fprintf(fp, "[\n");
-    for (size_t i = 0; i < b->rows.size(); i++) {
-        std::fprintf(fp, "  {\"id\": %d, \"nome\": \"%s\"}", b->rows[i].id,
-                     json_escape(b->rows[i].nome).c_str());
-        if (i + 1 < b->rows.size()) {
-            std::fprintf(fp, ",");
-        }
-        std::fprintf(fp, "\n");
-    }
-    std::fprintf(fp, "]\n");
-    if (std::fclose(fp) != 0) {
-        return -1;
-    }
-    if (std::rename(BANCO_TMP_PATH, BANCO_PATH) != 0) {
-        return -1;
-    }
-    return 0;
-}
-
-static int banco_load(Banco* b) {
-    std::ifstream in(BANCO_PATH);
-    if (!in) {
-        return banco_save_unlocked(b);
-    }
-
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
-    size_t i = 0;
-    skip_ws(content, &i);
-    if (i >= content.size() || content[i] != '[') {
-        std::cerr << "banco.json invalido, iniciando vazio\n";
-        b->rows.clear();
-        return banco_save_unlocked(b);
-    }
-    i++;
-
-    std::vector<Registro> loaded;
-    skip_ws(content, &i);
-    if (i < content.size() && content[i] == ']') {
-        i++;
-    } else {
-        while (true) {
-            Registro row {};
-            if (!parse_json_object(content, &i, &row)) {
-                std::cerr << "banco.json invalido, iniciando vazio\n";
-                b->rows.clear();
-                return banco_save_unlocked(b);
-            }
-            loaded.push_back(row);
-            skip_ws(content, &i);
-            if (i < content.size() && content[i] == ',') {
-                i++;
-                continue;
-            }
-            if (i < content.size() && content[i] == ']') {
-                i++;
-                break;
-            }
-            std::cerr << "banco.json invalido, iniciando vazio\n";
-            b->rows.clear();
-            return banco_save_unlocked(b);
-        }
-    }
-
-    b->rows = std::move(loaded);
-    return 0;
-}
-
-static int banco_find(Banco* b, int id) {
-    for (size_t i = 0; i < b->rows.size(); i++) {
-        if (b->rows[i].id == id) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
+    return nullptr;
 }
 
 static void set_msg(Response* r, int ok, const char* msg) {
@@ -242,56 +61,45 @@ static Response banco_exec(Banco* b, const Request* req) {
 
     switch (req->op) {
     case Op::INSERT: {
-        if (banco_find(b, req->id) >= 0) {
+        if (banco_find(b, req->id)) {
             set_msg(&resp, 0, "id ja existe");
             break;
         }
         Registro row{};
         row.id = req->id;
-        std::strncpy(row.nome, req->nome, sizeof(row.nome) - 1);
+        copy_nome(row.nome, req->nome);
         b->rows.push_back(row);
-        if (banco_save_unlocked(b) < 0) {
-            std::perror("banco.json");
-        }
         set_msg(&resp, 1, "ok");
         break;
     }
     case Op::DELETE: {
-        int i = banco_find(b, req->id);
-        if (i < 0) {
+        Registro* row = banco_find(b, req->id);
+        if (!row) {
             set_msg(&resp, 0, "id nao encontrado");
             break;
         }
-        b->rows.erase(b->rows.begin() + static_cast<size_t>(i));
-        if (banco_save_unlocked(b) < 0) {
-            std::perror("banco.json");
-        }
+        b->rows.erase(b->rows.begin() + (row - b->rows.data()));
         set_msg(&resp, 1, "ok");
         break;
     }
     case Op::SELECT: {
-        int i = banco_find(b, req->id);
-        if (i < 0) {
+        Registro* row = banco_find(b, req->id);
+        if (!row) {
             set_msg(&resp, 0, "id nao encontrado");
             break;
         }
-        resp.row = b->rows[static_cast<size_t>(i)];
+        resp.row = *row;
         set_msg(&resp, 1, "ok");
         break;
     }
     case Op::UPDATE: {
-        int i = banco_find(b, req->id);
-        if (i < 0) {
+        Registro* row = banco_find(b, req->id);
+        if (!row) {
             set_msg(&resp, 0, "id nao encontrado");
             break;
         }
-        std::strncpy(b->rows[static_cast<size_t>(i)].nome, req->nome,
-                     sizeof(b->rows[0].nome) - 1);
-        b->rows[static_cast<size_t>(i)].nome[sizeof(b->rows[0].nome) - 1] = '\0';
-        resp.row = b->rows[static_cast<size_t>(i)];
-        if (banco_save_unlocked(b) < 0) {
-            std::perror("banco.json");
-        }
+        copy_nome(row->nome, req->nome);
+        resp.row = *row;
         set_msg(&resp, 1, "ok");
         break;
     }
@@ -368,7 +176,7 @@ static void* worker_fn(void* arg) {
 
         pthread_mutex_lock(&p->io_mutex);
         log_op(p->log, &job.req, &resp);
-        ipc_send_response(p->fd_resp, &resp);
+        ipc_write(p->fd_resp, &resp, sizeof(resp));
         pthread_mutex_unlock(&p->io_mutex);
     }
     return nullptr;
@@ -457,13 +265,6 @@ int main(int argc, char** argv) {
 
     Banco banco;
     banco_init(&banco);
-    if (banco_load(&banco) < 0) {
-        std::perror("banco.json");
-        banco_destroy(&banco);
-        std::fclose(log);
-        ipc_close(&ch);
-        return 1;
-    }
 
     Pool pool {};
     if (pool_start(&pool, nthreads, &banco, ch.fd_resp, log) < 0) {
@@ -474,8 +275,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::cout << "servidor pronto (" << nthreads << " threads, "
-              << banco.rows.size() << " registros em banco.json)\n"
+    std::cout << "servidor pronto (" << nthreads << " threads)\n"
               << "pipes: " << IPC_PIPE_REQ << " , " << IPC_PIPE_RESP << "\n"
               << "Ctrl+C para encerrar\n";
 
@@ -496,7 +296,7 @@ int main(int argc, char** argv) {
         }
 
         Request req {};
-        if (ipc_recv_request(ch.fd_req, &req) < 0) {
+        if (ipc_read(ch.fd_req, &req, sizeof(req)) < 0) {
             if (g_stop) {
                 break;
             }
@@ -507,9 +307,6 @@ int main(int argc, char** argv) {
 
     std::cout << "encerrando...\n";
     pool_stop(&pool);
-    pthread_mutex_lock(&banco.mutex);
-    banco_save_unlocked(&banco);
-    pthread_mutex_unlock(&banco.mutex);
     banco_destroy(&banco);
     std::fclose(log);
     ipc_close(&ch);

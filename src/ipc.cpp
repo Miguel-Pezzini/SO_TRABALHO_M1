@@ -5,7 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int write_full(int fd, const void* buf, size_t n) {
+int ipc_write(int fd, const void* buf, size_t n) {
     const char* p = static_cast<const char*>(buf);
     size_t left = n;
     while (left > 0) {
@@ -25,7 +25,7 @@ static int write_full(int fd, const void* buf, size_t n) {
     return 0;
 }
 
-static int read_full(int fd, void* buf, size_t n) {
+int ipc_read(int fd, void* buf, size_t n) {
     char* p = static_cast<char*>(buf);
     size_t left = n;
     while (left > 0) {
@@ -122,20 +122,4 @@ void ipc_close(IpcChannel* ch) {
 void ipc_remove_fifos() {
     unlink(IPC_PIPE_REQ);
     unlink(IPC_PIPE_RESP);
-}
-
-int ipc_send_request(int fd, const Request* req) {
-    return write_full(fd, req, sizeof(*req));
-}
-
-int ipc_recv_request(int fd, Request* req) {
-    return read_full(fd, req, sizeof(*req));
-}
-
-int ipc_send_response(int fd, const Response* resp) {
-    return write_full(fd, resp, sizeof(*resp));
-}
-
-int ipc_recv_response(int fd, Response* resp) {
-    return read_full(fd, resp, sizeof(*resp));
 }

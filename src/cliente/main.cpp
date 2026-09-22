@@ -51,13 +51,28 @@ static int parse_line(const std::string& line, Request* req) {
         return 2;
     }
 
-    std::memset(req, 0, sizeof(*req));
-
+    Op op;
+    bool needs_nome = false;
     if (cmd == "INSERT") {
-        req->op = Op::INSERT;
-        if (!(iss >> req->id)) {
-            return -1;
-        }
+        op = Op::INSERT;
+        needs_nome = true;
+    } else if (cmd == "DELETE") {
+        op = Op::DELETE;
+    } else if (cmd == "SELECT") {
+        op = Op::SELECT;
+    } else if (cmd == "UPDATE") {
+        op = Op::UPDATE;
+        needs_nome = true;
+    } else {
+        return -1;
+    }
+
+    std::memset(req, 0, sizeof(*req));
+    req->op = op;
+    if (!(iss >> req->id)) {
+        return -1;
+    }
+    if (needs_nome) {
         std::string nome;
         std::getline(iss, nome);
         nome = trim(nome);
@@ -65,41 +80,8 @@ static int parse_line(const std::string& line, Request* req) {
             return -1;
         }
         std::strncpy(req->nome, nome.c_str(), sizeof(req->nome) - 1);
-        return 0;
     }
-
-    if (cmd == "DELETE") {
-        req->op = Op::DELETE;
-        if (!(iss >> req->id)) {
-            return -1;
-        }
-        return 0;
-    }
-
-    if (cmd == "SELECT") {
-        req->op = Op::SELECT;
-        if (!(iss >> req->id)) {
-            return -1;
-        }
-        return 0;
-    }
-
-    if (cmd == "UPDATE") {
-        req->op = Op::UPDATE;
-        if (!(iss >> req->id)) {
-            return -1;
-        }
-        std::string nome;
-        std::getline(iss, nome);
-        nome = trim(nome);
-        if (nome.empty()) {
-            return -1;
-        }
-        std::strncpy(req->nome, nome.c_str(), sizeof(req->nome) - 1);
-        return 0;
-    }
-
-    return -1;
+    return 0;
 }
 
 static void print_response(const Request& req, const Response& resp) {
@@ -145,13 +127,13 @@ int main() {
             continue;
         }
 
-        if (ipc_send_request(ch.fd_req, &req) < 0) {
+        if (ipc_write(ch.fd_req, &req, sizeof(req)) < 0) {
             std::cerr << "falha ao enviar. o servidor caiu?\n";
             break;
         }
 
         Response resp {};
-        if (ipc_recv_response(ch.fd_resp, &resp) < 0) {
+        if (ipc_read(ch.fd_resp, &resp, sizeof(resp)) < 0) {
             std::cerr << "falha ao receber resposta.\n";
             break;
         }
