@@ -20,8 +20,6 @@ static void on_signal(int) {
     g_stop = 1;
 }
 
-// ========== Banco ==========
-
 struct Banco {
     std::vector<Registro> rows;
     pthread_mutex_t mutex;
@@ -111,8 +109,6 @@ static Response banco_exec(Banco* b, const Request* req) {
     pthread_mutex_unlock(&b->mutex);
     return resp;
 }
-
-// ========== Pool de threads ==========
 
 struct Job {
     Request req;
@@ -224,8 +220,6 @@ static void pool_stop(Pool* p) {
     pthread_cond_destroy(&p->cond);
     pthread_mutex_destroy(&p->io_mutex);
 }
-
-// ========== Main ==========
 
 int main(int argc, char** argv) {
     int nthreads = 4;

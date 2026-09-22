@@ -67,7 +67,6 @@ int ipc_open_server(IpcChannel* ch) {
     ch->fd_req = -1;
     ch->fd_resp = -1;
 
-    // O_RDWR no Linux evita bloqueio no open e EOF quando o cliente sai.
     int req = open(IPC_PIPE_REQ, O_RDWR);
     if (req < 0) {
         return -1;
