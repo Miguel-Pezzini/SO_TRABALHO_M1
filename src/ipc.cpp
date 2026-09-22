@@ -5,120 +5,120 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int ipc_write(int fd, const void* buf, size_t n) {
-    const char* p = static_cast<const char*>(buf);
-    size_t left = n;
-    while (left > 0) {
-        ssize_t w = write(fd, p, left);
-        if (w < 0) {
+int ipc_write(int file_descriptor, const void* buffer, size_t size) {
+    const char* cursor = static_cast<const char*>(buffer);
+    size_t remaining = size;
+    while (remaining > 0) {
+        ssize_t bytes_written = write(file_descriptor, cursor, remaining);
+        if (bytes_written < 0) {
             if (errno == EINTR) {
                 continue;
             }
             return -1;
         }
-        if (w == 0) {
+        if (bytes_written == 0) {
             return -1;
         }
-        p += static_cast<size_t>(w);
-        left -= static_cast<size_t>(w);
+        cursor += static_cast<size_t>(bytes_written);
+        remaining -= static_cast<size_t>(bytes_written);
     }
     return 0;
 }
 
-int ipc_read(int fd, void* buf, size_t n) {
-    char* p = static_cast<char*>(buf);
-    size_t left = n;
-    while (left > 0) {
-        ssize_t r = read(fd, p, left);
-        if (r < 0) {
+int ipc_read(int file_descriptor, void* buffer, size_t size) {
+    char* cursor = static_cast<char*>(buffer);
+    size_t remaining = size;
+    while (remaining > 0) {
+        ssize_t bytes_read = read(file_descriptor, cursor, remaining);
+        if (bytes_read < 0) {
             if (errno == EINTR) {
                 continue;
             }
             return -1;
         }
-        if (r == 0) {
+        if (bytes_read == 0) {
             return -1;
         }
-        p += static_cast<size_t>(r);
-        left -= static_cast<size_t>(r);
+        cursor += static_cast<size_t>(bytes_read);
+        remaining -= static_cast<size_t>(bytes_read);
     }
     return 0;
 }
 
-static int set_blocking(int fd) {
-    int flags = fcntl(fd, F_GETFL);
+static int set_blocking(int file_descriptor) {
+    int flags = fcntl(file_descriptor, F_GETFL);
     if (flags < 0) {
         return -1;
     }
-    return fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+    return fcntl(file_descriptor, F_SETFL, flags & ~O_NONBLOCK);
 }
 
 int ipc_create_fifos() {
-    if (mkfifo(IPC_PIPE_REQ, 0666) < 0 && errno != EEXIST) {
+    if (mkfifo(IPC_PIPE_REQUEST, 0666) < 0 && errno != EEXIST) {
         return -1;
     }
-    if (mkfifo(IPC_PIPE_RESP, 0666) < 0 && errno != EEXIST) {
+    if (mkfifo(IPC_PIPE_RESPONSE, 0666) < 0 && errno != EEXIST) {
         return -1;
     }
     return 0;
 }
 
-int ipc_open_server(IpcChannel* ch) {
-    ch->fd_req = -1;
-    ch->fd_resp = -1;
+int ipc_open_server(IpcChannel* channel) {
+    channel->request_fd = -1;
+    channel->response_fd = -1;
 
-    int req = open(IPC_PIPE_REQ, O_RDWR);
-    if (req < 0) {
+    int request_fd = open(IPC_PIPE_REQUEST, O_RDWR);
+    if (request_fd < 0) {
         return -1;
     }
-    int resp = open(IPC_PIPE_RESP, O_RDWR);
-    if (resp < 0) {
-        close(req);
+    int response_fd = open(IPC_PIPE_RESPONSE, O_RDWR);
+    if (response_fd < 0) {
+        close(request_fd);
         return -1;
     }
 
-    ch->fd_req = req;
-    ch->fd_resp = resp;
+    channel->request_fd = request_fd;
+    channel->response_fd = response_fd;
     return 0;
 }
 
-int ipc_open_client(IpcChannel* ch) {
-    ch->fd_req = -1;
-    ch->fd_resp = -1;
+int ipc_open_client(IpcChannel* channel) {
+    channel->request_fd = -1;
+    channel->response_fd = -1;
 
-    for (int i = 0; i < 50; i++) {
-        int req = open(IPC_PIPE_REQ, O_WRONLY | O_NONBLOCK);
-        if (req >= 0) {
-            int resp = open(IPC_PIPE_RESP, O_RDONLY | O_NONBLOCK);
-            if (resp >= 0) {
-                if (set_blocking(req) < 0 || set_blocking(resp) < 0) {
-                    close(req);
-                    close(resp);
+    for (int attempt = 0; attempt < 50; attempt++) {
+        int request_fd = open(IPC_PIPE_REQUEST, O_WRONLY | O_NONBLOCK);
+        if (request_fd >= 0) {
+            int response_fd = open(IPC_PIPE_RESPONSE, O_RDONLY | O_NONBLOCK);
+            if (response_fd >= 0) {
+                if (set_blocking(request_fd) < 0 || set_blocking(response_fd) < 0) {
+                    close(request_fd);
+                    close(response_fd);
                     return -1;
                 }
-                ch->fd_req = req;
-                ch->fd_resp = resp;
+                channel->request_fd = request_fd;
+                channel->response_fd = response_fd;
                 return 0;
             }
-            close(req);
+            close(request_fd);
         }
         usleep(100000);
     }
     return -1;
 }
 
-void ipc_close(IpcChannel* ch) {
-    if (ch->fd_req >= 0) {
-        close(ch->fd_req);
-        ch->fd_req = -1;
+void ipc_close(IpcChannel* channel) {
+    if (channel->request_fd >= 0) {
+        close(channel->request_fd);
+        channel->request_fd = -1;
     }
-    if (ch->fd_resp >= 0) {
-        close(ch->fd_resp);
-        ch->fd_resp = -1;
+    if (channel->response_fd >= 0) {
+        close(channel->response_fd);
+        channel->response_fd = -1;
     }
 }
 
 void ipc_remove_fifos() {
-    unlink(IPC_PIPE_REQ);
-    unlink(IPC_PIPE_RESP);
+    unlink(IPC_PIPE_REQUEST);
+    unlink(IPC_PIPE_RESPONSE);
 }

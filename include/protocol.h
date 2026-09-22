@@ -1,7 +1,7 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-enum class Op : int {
+enum class Operation : int {
     INSERT = 1,
     DELETE = 2,
     SELECT = 3,
@@ -14,14 +14,14 @@ struct Registro {
 };
 
 struct Request {
-    Op op;
+    Operation operation;
     int id;
     char nome[50];
 };
 
 struct Response {
     int ok;
-    char msg[128];
+    char message[128];
     Registro row;
 };
 
