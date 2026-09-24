@@ -2,6 +2,8 @@
 
 Sistema com dois processos: o **servidor** guarda um vetor de registros e atende requisições com um pool de threads; o **cliente** envia comandos por named pipes (`/tmp/db_req` e `/tmp/db_resp`).
 
+![fluxo](docs/fluxo.png)
+
 ## Requisitos
 
 - Linux
